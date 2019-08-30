@@ -12,19 +12,19 @@ ContextLoaderListener初始化springcontext
 servlet给容器使用，tomcat注册一个servlet，会拦截搜有的请求
 ```xml
 <listener>
-      <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+   <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
 </listener>
 ```
 ```xml
  <servlet>
-        <servlet-name>app</servlet-name>
-        <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
-        <init-param>
-            <param-name>contextConfigLocation</param-name>
-            <param-value></param-value>
-        </init-param>
-        <load-on-startup>1</load-on-startup>
-    </servlet>
+   <servlet-name>app</servlet-name>
+   <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+   <init-param>
+     <param-name>contextConfigLocation</param-name>
+     <param-value></param-value>
+   </init-param>
+   <load-on-startup>1</load-on-startup>
+  </servlet>
 ```
 -  springContext.xml 扫描业务类
 -  springmvc.xml 扫描Controller
@@ -51,9 +51,10 @@ public class MyWebApplicationInitializer implements WebApplicationInitializer {
 > https://docs.spring.io/spring/docs/current/spring-framework-reference/web.html#mvc-servlet
 ## 3. Tomcat
 Tomcat 是web容器，实现了Servlet标准【tomcat 8 => servlet > 3.0 】
-servlet 标准中，在META-INF/services/javax.servlet.ServletContainerInitializer文件中定义MyWebApplicationInitializer包名
-spring framework引入Tomcat包(tomcat-embed-core),调用start方法。tomcat 会去找到WebApplicationInitializer，并且调用类的onStartup方法（tomcat不依赖spring framework）
+servlet 标准中，在`META-INF/services/javax.servlet.ServletContainerInitializer`文件中定义`MyWebApplicationInitializer包名`
+spring framework引入Tomcat包(tomcat-embed-core),调用`tomcat.start`方法。tomcat 会去找到系统的和用户自定义的WebApplicationInitializer，并且调用类的onStartup方法（tomcat不依赖spring framework）
 简写的示例：
+
 ```java
 public class SpringApplication {
     public static void  run() {
@@ -138,10 +139,6 @@ ClassLayout.parseInstance(l).toPrintable();
 | 重量级锁 | 指向重量级锁的指针       | ------- | ------- | -------  | ----->]           | 10               |
 | GC标记   | [<---空----------------- | ------- | ------- | -------  | ----->]           | 11               |
 
-总结：
-
-- 锁的在jdk中进行，不是在操作系统中实现互斥(mutex 比较耗性能)
-
 分析打印出来的对象头信息, hash code 没有经过JVM计算，所以前几位都为0
 
 ```
@@ -155,6 +152,7 @@ ClassLayout.parseInstance(l).toPrintable();
 ```java
 l.hashCode(); // 计算hashCode = 0x1540e19d（Little-Endian: 低地址存放低位）
 ```
+
 其中【】扩起来的是25bit没使用的空间
 
 ```
@@ -164,5 +162,168 @@ l.hashCode(); // 计算hashCode = 0x1540e19d（Little-Endian: 低地址存放低
 
 43 c1 00 20 (01000011 11000001 00000000 01000000) (536920387)
 ```
+
+### 2.3 锁
+
+- jdk 1.6前： 互斥是在OS中进行(mutex 比较耗性能)
+
+- jdk 1.6后： 锁的在jdk中进行，
+
+  1）没有资源竞争的同步代码 ---- 偏向锁，一个线程调用
+
+  2）有资源竞争（多个线程执行）
+
+  ​    2.1） 多个线程交替执行 ---- 轻量级锁
+
+  ​    2.2） 线程竞争 ---- 重量级锁(OS级别)
+
+JVM偏向锁延迟了(启动main方法前，会先启动jdk)，可以使用参数关闭偏向锁延迟`VM options`: -XX: BiasedLockingStartupDelay=0
+
+## 3. 多线程同步内部实现
+
+模拟
+
+### 3.1 自旋
+
+```java
+volatile int status = 0; // 标示 是否有线程上锁成功
+void lock {
+  while(!compareAndSet(status, 1)){ 
+    // 循环执行，status==1时无限循环=>Lock住， status==0，将status置为1往下执行
+    // --------------------------------------------------------- (1)
+  }
+  // 逻辑代码
+}
+void unlock{ status = 0; }
+  
+boolean compareAndSet(int except, int newValue) {
+  // CAS操作，修改status成功则返回ture
+}
+```
+
+缺点： 耗费CPU
+
+## 3.2 yield + 自旋
+
+```java
+yield(); //----------------------------------------------------- (1)
+```
+
+yield就是让出CPU，当只有两个线程时yield时有效的
+
+## 3.3 sleep
+
+```java
+sleep(10); //---------------------------------------------------- (1)
+```
+
+睡眠时间不能控制
+
+## 3.4 park + 自旋
+
+```java
+volatile int status = 0; 
+Queue parkQueue;
+
+void lock {
+  while(!compareAndSet(status, 1)){ 
+    park();
+  }
+  unlock();
+}
+void unlock{ 
+  lock_notify();
+}
+  
+void park() {
+  parkQueue.add(currentThread); // 将当前线程加入到等待队列
+  releaseCpu(); // 释放CPU
+}
+void lock_notify() {
+  Thread t = parkQueue.header(); // 得到要唤醒的头部线程
+  unpark(t); // 唤醒线程
+}
+```
+
+这里的parkQueue类似于AQS
+
+AQS(AbstractQueuedSynchronizer) 类主要代码
+
+```java
+private transient volatile Node head; // 队头
+private transient volatile Node tail; // 队尾
+private volatile int state; // 锁状体，加锁成功置为1， 重入+1，解锁值为0
+```
+
+示例：
+
+```java
+import java.util.concurrent.locks.LockSupport;
+
+public class Example {
+  public static void main(String[] args) throws InterruptedException{
+    System.put.Println('m1');
+    Thread t1 = new Thread("t1") {
+      @Override
+      public void run(){
+      	System.put.Println('t1');
+        LockSupport.park();
+				System.put.Println('t2');
+			}
+    }
+    t1.start();
+    Thread.sleep(5000);
+    System.put.Println('m2');
+    LockSupport.unpark();
+  }
+}
+```
+
+打印结果
+
+```
+m1 
+t1
+m2 
+t2
+```
+
+## 3.5 ReentrantLock
+
+```java
+public class Example2 {
+  public static void main(String[] args) throws InterruptedException{
+    final ReentrantLock lock = new ReentrantLock(true);
+
+    Thread t1 = new Thread("t1") {
+      @Override
+      public void run(){
+      	lock.lock();
+        logic();
+        lock.unlock();
+			}
+    }
+    t1.start();
+    Thread.sleep(10);
+  }
+  
+  public static void logic(){
+    try{
+      Thread.sleep(2000);
+    } catch(InterruptedException e) {
+      e.printStatckTrace();
+    }
+  }
+}
+```
+
+
+
+
+
+
+
+
+
 
 
