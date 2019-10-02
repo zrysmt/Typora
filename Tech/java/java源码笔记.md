@@ -70,7 +70,8 @@ public class SpringApplication {
 }
 ```
 # 二、java并发解读
-- [【JVM源码探秘】深入理解Thread.run()底层实现](https://hunterzhao.io/post/2018/06/11/hotspot-explore-inside-java-thread-run/)
+> [【JVM源码探秘】深入理解Thread.run()底层实现](https://hunterzhao.io/post/2018/06/11/hotspot-explore-inside-java-thread-run/)
+
 ## 1. 线程
 java中的线程本质上是操作系统中的线程
 thread.start(java) -> start0(native,C++) -> pthread_create(C++) 
@@ -211,7 +212,7 @@ yield(); //----------------------------------------------------- (1)
 
 yield就是让出CPU，当只有两个线程时yield时有效的
 
-## 3.3 sleep
+## 3.3 sleep + 自旋
 
 ```java
 sleep(10); //---------------------------------------------------- (1)
@@ -247,14 +248,6 @@ void lock_notify() {
 
 这里的parkQueue类似于AQS
 
-AQS(AbstractQueuedSynchronizer) 类主要代码
-
-```java
-private transient volatile Node head; // 队头
-private transient volatile Node tail; // 队尾
-private volatile int state; // 锁状体，加锁成功置为1， 重入+1，解锁值为0
-```
-
 示例：
 
 ```java
@@ -288,7 +281,11 @@ m2
 t2
 ```
 
-## 3.5 ReentrantLock
+## 4 ReentrantLock源码分析
+
+> [JUC AQS ReentrantLock源码分析（一）](https://blog.csdn.net/java_lyvee/article/details/98966684)
+
+使用示例
 
 ```java
 public class Example2 {
@@ -316,6 +313,175 @@ public class Example2 {
   }
 }
 ```
+
+AQS(AbstractQueuedSynchronizer) 类
+
+```java
+private transient volatile Node head; // 队头
+private transient volatile Node tail; // 队尾
+private volatile int state; // 锁状体，加锁成功置为1， 重入+1，解锁值为0
+```
+
+Node类
+
+```java
+public class Node{
+    volatile Node prev;
+    volatile Node next;
+    volatile Thread thread;
+}
+```
+
+## 5. 线程池
+
+> [Java并发编程：Callable、Future和FutureTask](https://www.cnblogs.com/dolphin0520/p/3949310.html)
+>
+> [Java并发编程：线程池的使用](https://www.cnblogs.com/dolphin0520/p/3932921.html)
+
+- 线程创建方法如下，线程在运行结束后由虚拟机GC；当线程数量比较多时，频繁的创建和销毁很耗性能
+
+1）继承`Thread`类； 2）实现Runnable接口
+
+- Callable与Runnable
+
+```java
+public interface Runnable {
+    public abstract void run();
+}
+
+public interface Callable<V> {
+    /**
+     * Computes a result, or throws an exception if unable to do so.
+     *
+     * @return computed result 返回值
+     * @throws Exception if unable to compute a result
+     */
+    V call() throws Exception;
+}
+```
+
+- Future
+
+Future就是对于具体的Runnable或者Callable任务的执行结果进行取消、查询是否完成、获取结果。必要时可以通过get方法获取执行结果，该方法会阻塞直到任务返回结果。
+
+Future类位于java.util.concurrent包下，它是一个接口：
+
+```java
+public interface Future<V> {
+    boolean cancel(boolean mayInterruptIfRunning);
+    boolean isCancelled();
+    boolean isDone();
+    V get() throws InterruptedException, ExecutionException;
+    V get(long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException;
+}
+```
+
+- FutureTask
+
+FutureTask是Future接口的一个唯一实现类
+
+### 5.1 ThreadPoolExecutor构造函数
+
+`Executor`是一个接口，它将任务的提交与任务的执行分离开来，定义了一个接收`Runnable`对象的方法`execute`。`Executor`是Executor框架中最基础的一个接口，类似于集合中的`Collection`接口。
+
+`Executor`(接口) <---- ThreadPoolExecutor（核心类）
+
+```java
+ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, 	BlockingQueue<Runnable> workQueue)
+
+ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, RejectedExecutionHandler handler)
+
+ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory)
+
+ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory, RejectedExecutionHandler handler)
+
+```
+
+参数
+
+corePoolSize - 即使空闲时仍保留在池中的线程数，除非设置 allowCoreThreadTimeOut  
+maximumPoolSize - 池中允许的最大线程数  
+keepAliveTime - 当线程数大于核心时，这是多余的空闲线程在终止之前等待新任务的最大时间。  
+unit - keepAliveTime参数的时间单位  
+workQueue - 在执行任务之前用于保存任务的队列。 该队列将仅保存execute方法提交的Runnable任务。  
+threadFactory：线程工厂，用来创建线程，一般有三种选择策略。  
+
+```
+ArrayBlockingQueue;
+LinkedBlockingQueue;
+SynchronousQueue;
+```
+
+
+handler：拒绝处理策略，线程数量大于最大线程数就会采用拒绝处理策略，四种策略为
+
+```
+ThreadPoolExecutor.AbortPolicy:丢弃任务并抛出RejectedExecutionException异常。 
+ThreadPoolExecutor.DiscardPolicy：也是丢弃任务，但是不抛出异常。 
+ThreadPoolExecutor.DiscardOldestPolicy：丢弃队列最前面的任务，然后重新尝试执行任务（重复此过程）
+ThreadPoolExecutor.CallerRunsPolicy：由调用线程处理该任务 
+```
+
+### 5.2 ThreadPoolExecutor方法
+
+shutdown和submit，两者都用来关闭线程池，但是后者有一个结果返回。
+
+### 5.3 线程池状态
+
+线程池和线程一样拥有自己的状态，在ThreadPoolExecutor类中定义了一个volatile变量runState来表示线程池的状态，线程池有四种状态，分别为`RUNNING`、`SHURDOWN`、`STOP`、`TERMINATED`。
+
+```
+线程池创建后处于RUNNING状态
+
+调用shutdown后处于SHUTDOWN状态，线程池不能接受新的任务，会等待缓冲队列的任务完成
+
+调用shutdownNow后处于STOP状态，线程池不能接受新的任务，并尝试终止正在执行的任务
+
+当线程池处于SHUTDOWN或STOP状态，并且所有工作线程已经销毁，任务缓存队列已经清空或执行结束后，线程池被设置为TERMINATED状态
+```
+
+### 5.4 常用Executors的几个静态方法
+
+```java
+Executors.newCachedThreadPool();        //创建一个缓冲池，缓冲池容量大小为Integer.MAX_VALUE
+Executors.newSingleThreadExecutor();   //创建容量为1的缓冲池
+Executors.newFixedThreadPool(int);    //创建固定容量大小的缓冲池
+```
+
+## 6. Redis
+
+Redis 作缓存
+
+缓存穿透：避免不存在的查询值，常使用布隆过滤器(Bloom)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
