@@ -233,3 +233,49 @@ Java语言系统自带有三个类加载器:
 `Bootstrap ClassLoader` 最顶层的加载类，主要加载核心类库，%JRE_HOME%\lib下的rt.jar、resources.jar、charsets.jar和class等。另外需要注意的是可以通过启动jvm时指定-Xbootclasspath和路径来改变Bootstrap ClassLoader的加载目录。比如java -Xbootclasspath/a:path被指定的文件追加到默认的bootstrap路径中。我们可以打开我的电脑，在上面的目录下查看，看看这些jar包是不是存在于这个目录。
 `Extention ClassLoader` 扩展的类加载器，加载目录%JRE_HOME%\lib\ext目录下的jar包和class文件。还可以加载-D java.ext.dirs选项指定的目录。
 `Appclass Loader`也称为SystemAppClass 加载当前应用的classpath的所有类。
+
+## 17.Spring-retry
+
+两个方法的返回值必须相同
+
+```java
+@Retryable(value = {Exception.class}, maxAttempts = 5, backoff = @Backoff(delay = 5000l, multiplier = 1))
+    public boolean actCallback(ActCallbackParams params, String type) {}
+```
+
+```java
+@Recover
+public boolean recover(Exception e) {}
+```
+
+## 18. ==和equals
+
+> [ATA java中的==和equals](https://www.atatech.org/articles/150993?spm=ata.home.0.0.11fd7536WvsJEk&flag_data_from=home_algorithm_article)
+
+**基本使用**
+
+1) 基本数据类型：`byte,short,char,int,long,float,double,boolean`的比较使用 "==",比较的是值
+
+2) 引用数据类型：类，接口 ，数组等，使用 == 和 equals比较的是他们在内存中的存放地址，所以，除非是同一个new出来的对象，他们的比较后的结果为true，否则比较后结果为false。
+
+```java
+Student a = new Student("100","test","test");
+Student b = new Student("100","test","test");
+System.out.println(a == b); //false
+System.out.println(a.equals(b));//false
+```
+
+**进阶**
+
+实际在项目中可能会遇到，根据类中某一些属性判断类是否相等。这时候需要考虑重写equals方法。
+
+jdk的规范中定义：如果两个对象相同，那么它们的hashCode值一定要相同。所以 重写equals方法时，对应的`hashCode`方法也需要重写
+
+
+
+
+
+
+
+
+
