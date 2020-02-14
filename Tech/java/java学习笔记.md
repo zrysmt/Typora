@@ -122,6 +122,7 @@ VO vo = JSON.parseObject("{...}", VO.class); //反序列化
 过滤器Filter，是Servlet的的一个实用技术。可通过过滤器，对请求进行拦截，比如读取session判断用户是否登录、判断访问的请求URL是否有访问权限(黑白名单)等。主要还是可对请求进行预处理。接下来介绍下，在springboot如何实现过滤器功能。
 #### 监听器
 Listen是servlet规范中定义的一种特殊类。用于监听servletContext、HttpSession和servletRequest等域对象的创建和销毁事件。监听域对象的属性发生修改的事件。用于在事件发生前、发生后做一些必要的处理。一般是获取在线人数等业务需求。
+
 #### 拦截器
 以上的过滤器、监听器都属于Servlet的api，我们在开发中处理利用以上的进行过滤web请求时，还可以使用Spring提供的拦截器(HandlerInterceptor)进行更加精细的控制。
 ## 12. 同步/异步 & 阻塞/非阻塞
@@ -271,11 +272,99 @@ System.out.println(a.equals(b));//false
 
 jdk的规范中定义：如果两个对象相同，那么它们的hashCode值一定要相同。所以 重写equals方法时，对应的`hashCode`方法也需要重写
 
+## 19. Quarzt 调度 
 
+简单的例子
 
+The program starts by getting an instance of the Scheduler. This is done by creating a *StdSchedulerFactory* and then using it to create a scheduler. This will create a simple, RAM-based scheduler.
 
+```java
+SchedulerFactory sf = new StdSchedulerFactory();
+Scheduler sched = sf.getScheduler();
+```
 
+The HelloJob is defined as a Job to Quartz using the *JobDetail* class:
 
+```java
+// define the job and tie it to our HelloJob class
+JobDetail job = newJob(HelloJob.class)
+    .withIdentity("job1", "group1")
+    .build();
+```
+
+We create a *SimpleTrigger* that will fire off at the next round minute:
+
+```java
+// compute a time that is on the next round minute
+Date runTime = evenMinuteDate(new Date());
+
+// Trigger the job to run on the next round minute
+Trigger trigger = newTrigger()
+    .withIdentity("trigger1", "group1")
+    .startAt(runTime)
+    .build();
+```
+
+We now will associate the Job to the Trigger in the scheduler:
+
+```java
+// Tell quartz to schedule the job using our trigger
+sched.scheduleJob(job, trigger);
+```
+
+At this point, the job has been schedule to run when its trigger fires. However, the scheduler is not yet running. So, we must tell the scheduler to start up!
+
+```java
+sched.start();
+```
+
+To let the program have an opportunity to run the job, we then sleep for 90 seconds. The scheduler is running in the background and should fire off the job during those 90 seconds.
+
+```java
+Thread.sleep(90L * 1000L);
+```
+
+Finally, we will gracefully shutdown the scheduler:
+
+```java
+sched.shutdown(true);
+```
+
+Note: passing *true* into the *shutdown* message tells the Quartz Scheduler to wait until all jobs have completed running before returning from the method call.
+
+## 20. ApplicationListener Springboot监听器
+
+```java
+@Service
+public class InitService implements ApplicationListener<ContextRefreshedEvent> {
+
+    @Autowired
+    private JobManager jobManager;
+
+    @Autowired
+    private SchedulerMetaService schedulerMetaService;
+
+    @Override
+    public void onApplicationEvent(ContextRefreshedEvent contextRefreshedEvent) {
+        schedulerMetaService.register();
+        jobManager.start();
+    }
+}
+```
+
+## 21. Spring定时任务@Scheduled fixedRate和fixedDelay
+
+fixedDelay非常好理解，它的间隔时间是根据上次的任务结束的时候开始计时的。比如一个方法上设置了fixedDelay=5*1000，那么当该方法某一次执行结束后，开始计算时间，当时间达到5秒，就开始再次执行该方法。
+
+fixedRate理解起来比较麻烦，它的间隔时间是根据上次任务开始的时候计时的。比如当方法上设置了fiexdRate=5*1000，该执行该方法所花的时间是2秒，那么3秒后就会再次执行该方法。
+
+## 22. Maven
+
+Maven中的scope有compile、test、runtime、provided、system，其中默认的值是compile。provided的包debug时候提示缺失，可以不用注释，配置下即可。
+
+<img src="/Users/ruyi/ali/Typora/Res/Img/image-20191231120855973.png" alt="image-20191231120855973" style="zoom: 67%;" />
+
+## 23. 
 
 
 
